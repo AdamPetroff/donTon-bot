@@ -31,6 +31,14 @@ const state: {
   games: [],
 };
 
+const sleep = async (timeout: number): Promise<void> => {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve();
+    }, timeout);
+  });
+};
+
 const server = express();
 server.use(express.json());
 
@@ -50,12 +58,14 @@ server.post<undefined, undefined, { userId: string; userName: string }>(
   }
 );
 
-function createGame(player1: string, player2: string, level: number) {
+async function createGame(player1: string, player2: string, level: number) {
   const game: Game = {
     player1,
     player2,
     level,
   };
+
+  console.log(game);
 
   function getRandomChoice() {
     return (["paper", "rock", "scissors"] as Choices[])[
@@ -72,49 +82,83 @@ function createGame(player1: string, player2: string, level: number) {
     game.player2Choice = getRandomChoice();
   }
 
-  bot.api
-    .sendMessage(player1, `You will be playing with ${state.players[player2]}`)
-    .catch(() => {});
-  bot.api
-    .sendMessage(player2, `You will be playing with ${state.players[player1]}`)
-    .catch(() => {});
-  sendChoices(player1).catch(() => {});
-  sendChoices(player2).catch(() => {});
+  try {
+    await bot.api.sendMessage(
+      player1,
+      `You are playing with ${state.players[player2]}`
+    );
+  } catch {}
+  try {
+    await bot.api.sendMessage(
+      player2,
+      `You are playing with ${state.players[player1]}`
+    );
+  } catch {}
+
+  try {
+    await sendChoices(player1);
+  } catch {}
+  try {
+    await sendChoices(player2);
+  } catch {}
 
   state.games.push(game);
 
   if (player1IsBot && player2IsBot) {
-    judgeGame(game);
+    await judgeGame(game);
   }
 }
 
-function pairGames() {
+async function pairGames() {
   state.games = [];
   const keys = Object.keys(state.players);
   for (let i = 0; i < keys.length / 2; i++) {
     const player1 = keys[i];
     const player2 = keys[keys.length - 1 - i];
 
-    createGame(player1, player2, 1);
+    // console.log("----", keys.length, i);
+
+    await createGame(player1, player2, 1);
   }
 
   state.hasStarted = true;
 }
 
-function begin() {
+// function begin() {
+//   if (Object.keys(state.players).length % 2 === 0) {
+//     pairGames();
+//   }
+// }
+
+async function begin(ctx: Context) {
+  register(ctx);
+  registerBots(ctx);
   if (Object.keys(state.players).length % 2 === 0) {
+    await sleep(2000);
+    await ctx.reply(
+      `There will be ${
+        Object.keys(state.players).length
+      } players playing. Good luck 🍀!!!`
+    );
+    await sleep(2000);
+    await ctx.reply(`-------- 🎬 Competition is starting 🎬 --------`);
+    await sleep(2000);
     pairGames();
+  } else {
+    ctx.reply("There has to be an even number of players");
   }
 }
 
-server.post("/begin", (req, res) => {
-  if (Object.keys(state.players).length % 2 === 0) {
-    pairGames();
-    res.send();
-  } else {
-    res.status(401).send("There has to be an event number of players");
-  }
-});
+bot.command("begin", begin);
+
+// server.post("/begin", (req, res) => {
+//   if (Object.keys(state.players).length % 2 === 0) {
+//     pairGames();
+//     res.send();
+//   } else {
+//     res.status(401).send("There has to be an event number of players");
+//   }
+// });
 
 function getWinner(player1Choice: Choices, player2Choice: Choices): 1 | 2 | 0 {
   if (player1Choice === player2Choice) {
@@ -148,33 +192,35 @@ server.listen(port);
 
 console.log("listening on port: ", port);
 
-function sendChoices(chatId: string) {
+async function sendChoices(chatId: string) {
   const inlineKeyboard = new InlineKeyboard()
-    .text("rock", "rock")
+    .text("🪨 rock", "rock")
     .row()
-    .text("paper", "paper")
+    .text("🧻 paper", "paper")
     .row()
-    .text("scissors", "scissors");
+    .text("✂️ scissors", "scissors");
 
-  return bot.api
-    .sendMessage(chatId, "Choose your weapon", {
-      reply_markup: inlineKeyboard,
-    })
-    .catch(() => {});
+  try {
+    return bot.api
+      .sendMessage(chatId, "🔫 CHOOSE YOUR WEAPON 🔫", {
+        reply_markup: inlineKeyboard,
+      })
+      .catch(() => {});
+  } catch {}
 }
 
-const menu = new Menu("menu")
-  .row()
-  .text("begin", begin)
-  .text("test register", register)
-  .text("register 15 bots", registerBots)
-  .text("start competition", begin);
+// const menu = new Menu("menu")
+//   .row()
+//   .text("begin", begin)
+//   .text("test register", register)
+//   .text("register 15 bots", registerBots)
+//   .text("start competition", begin);
 
-bot.use(menu);
+// bot.use(menu);
 
-bot.command("start", async (ctx) => {
-  await ctx.reply("Here is your menu", { reply_markup: menu });
-});
+// bot.command("start", async (ctx) => {
+//   await ctx.reply("Here is your menu", { reply_markup: menu });
+// });
 
 bot.command("commands", (ctx) => {
   ctx.reply(`
@@ -199,7 +245,7 @@ bot.command("game", ({ from }) => sendChoices(String(from?.id)));
 
 function _register(userId: string, userName: string) {
   state.players[userId] = userName;
-  bot.api.sendMessage(userId, "You've been added to the game");
+  bot.api.sendMessage(userId, "➕ You've been added to the game");
 }
 
 function register(ctx: Context) {
@@ -218,32 +264,31 @@ function registerBots(ctx: Context) {
   state.players["bot0"] = "bot0";
   state.players["bot1"] = "bot1";
   state.players["bot2"] = "bot2";
-  state.players["bot3"] = "bot3";
-  state.players["bot4"] = "bot4";
-  state.players["bot5"] = "bot5";
-  state.players["bot6"] = "bot6";
-  state.players["bot7"] = "bot7";
-  state.players["bot8"] = "bot8";
-  state.players["bot9"] = "bot9";
-  state.players["bot10"] = "bot10";
-  state.players["bot11"] = "bot11";
-  state.players["bot12"] = "bot12";
-  state.players["bot13"] = "bot13";
-  state.players["bot14"] = "bot14";
-  ctx.reply("bots added");
+  // state.players["bot3"] = "bot3";
+  // state.players["bot4"] = "bot4";
+  // state.players["bot5"] = "bot5";
+  // state.players["bot6"] = "bot6";
+  // state.players["bot7"] = "bot7";
+  // state.players["bot8"] = "bot8";
+  // state.players["bot9"] = "bot9";
+  // state.players["bot10"] = "bot10";
+  // state.players["bot11"] = "bot11";
+  // state.players["bot12"] = "bot12";
+  // state.players["bot13"] = "bot13";
+  // state.players["bot14"] = "bot14";
 }
 bot.command("registerbots", registerBots);
 
-bot.command("web", async (ctx) => {
-  const keyboard = new InlineKeyboard().game("Start jesus");
-  // Pass the name of the game you created in BotFather, for example "my_game".
-  // await ctx.replyWithGame("jesus", { reply_markup: keyboard });
+// bot.command("web", async (ctx) => {
+//   const keyboard = new InlineKeyboard().game("Start jesus");
+//   // Pass the name of the game you created in BotFather, for example "my_game".
+//   // await ctx.replyWithGame("jesus", { reply_markup: keyboard });
 
-  const chatId = ctx.from?.id;
-  if (chatId) {
-    await ctx.api.sendGame(chatId, "jesus", { reply_markup: keyboard });
-  }
-});
+//   const chatId = ctx.from?.id;
+//   if (chatId) {
+//     await ctx.api.sendGame(chatId, "jesus", { reply_markup: keyboard });
+//   }
+// });
 
 bot.command("players", (ctx) => {
   const message = Object.values(state.players).join(", ");
@@ -287,22 +332,63 @@ bot.command("games4", (ctx) => {
   );
 });
 
-function judgeGame(game: Game, ctx?: Context) {
+async function judgeGame(game: Game, ctx?: Context) {
   if (game.player1Choice && game.player2Choice && !game.isDone) {
     const winner = getWinner(game.player1Choice, game.player2Choice);
+
+    function getChoiceIcon(choice: Choices) {
+      return choice === "paper" ? "🧻" : choice === "rock" ? "🪨" : "✂️";
+    }
+
+    try {
+      await bot.api
+        .sendMessage(
+          game.player1,
+          `
+You: ${getChoiceIcon(game.player1Choice)}
+${state.players[game.player2]}: ${getChoiceIcon(game.player2Choice)}
+          `
+        )
+        .catch(() => {});
+    } catch {}
+    try {
+      await bot.api
+        .sendMessage(
+          game.player2,
+          `
+You: ${getChoiceIcon(game.player2Choice)}
+${state.players[game.player1]}: ${getChoiceIcon(game.player1Choice)}
+          `
+        )
+        .catch(() => {});
+    } catch {}
+
+    await sleep(2000);
+
     if (winner === 0) {
-      ctx?.reply("it's a draw");
+      ctx?.reply("✏️ It's a DRAW ✏️. Play again!");
+      await sleep(1000);
+      ctx?.reply("------------------------");
+      await sleep(1000);
 
       game.isDone = true;
 
-      createGame(game.player1, game.player2, game.level);
+      await createGame(game.player1, game.player2, game.level);
 
       return;
     } else {
       const winnerId = winner === 1 ? game.player1 : game.player2;
       const loserId = winner === 1 ? game.player2 : game.player1;
-      bot.api.sendMessage(loserId, "You lost").catch(() => {});
-      bot.api.sendMessage(winnerId, "You won").catch(() => {});
+      try {
+        await bot.api.sendMessage(loserId, "🙃 You LOST 🙃").catch(() => {});
+      } catch {}
+      try {
+        await bot.api.sendMessage(winnerId, "✨ You WON ✨").catch(() => {});
+      } catch {}
+
+      try {
+        await ctx?.reply("------------------------");
+      } catch {}
 
       const nextLevel = game.level + 1;
       const randomWinnerGameIndex = state.games.findIndex(
@@ -317,24 +403,49 @@ function judgeGame(game: Game, ctx?: Context) {
         game.isDone = true;
         randomGame.isDone = true;
 
-        createGame(winnerId, winnerToPairWith, nextLevel);
+        await createGame(winnerId, winnerToPairWith, nextLevel);
       } else {
         game.winner = winner;
         if (state.games.filter((item) => !item.isDone).length === 1) {
-          bot.api.sendMessage(winnerId, "You won everything").catch(() => {});
+          await bot.api
+            .sendMessage(winnerId, "🎆 YOU WON EVERYTHING 🎆")
+            .catch(() => {});
 
-          Object.keys(state.players).forEach((id) => {
-            bot.api
-              .sendMessage(id, `${state.players[winnerId]} won the competition`)
-              .catch(() => {});
-          });
+          Object.keys(state.players)
+            .filter((id) => id !== winnerId)
+            .forEach((id) => {
+              try {
+                bot.api
+                  .sendMessage(
+                    id,
+                    `✨✨✨ ${state.players[winnerId]} WON the competition!! ✨✨✨`
+                  )
+                  .catch(() => {});
+              } catch {}
+            });
+
+          Object.keys(state.players)
+            .filter((item) => !item.includes("bot"))
+            .forEach((item) => {
+              const inlineKeyboard = new InlineKeyboard()
+                .text("Start over", "start-over")
+                .row();
+
+              bot.api
+                .sendMessage(
+                  item,
+                  `${state.players[winnerId]} WON the competition!!`,
+                  { reply_markup: inlineKeyboard }
+                )
+                .catch(() => {});
+            });
         }
       }
     }
   }
 }
 
-function handleChoice(choice: Choices, ctx: Context) {
+async function handleChoice(choice: Choices, ctx: Context) {
   const userId = String(ctx.from?.id);
 
   const gameIndex = state.games.findIndex(
@@ -365,6 +476,7 @@ function handleChoice(choice: Choices, ctx: Context) {
 bot.callbackQuery("rock", (ctx) => handleChoice("rock", ctx));
 bot.callbackQuery("paper", (ctx) => handleChoice("paper", ctx));
 bot.callbackQuery("scissors", (ctx) => handleChoice("scissors", ctx));
+bot.callbackQuery("start-over", begin);
 
 bot.on("message", (ctx) => {
   if (ctx.message.text && /myid/.test(ctx.message.text)) {
